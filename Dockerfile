@@ -1,10 +1,10 @@
-FROM debian:latest
-LABEL version="0.2"
-MAINTAINER veto<veto@myridia.com>
-RUN apt-get update -y && apt-get install -y \
+FROM debian:trixie
+LABEL version="0.2" maintainer="veto <veto@myridia.com>"
+RUN apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   bat \
   build-essential \
   chromium \
+  chromium-driver \
   curl \
   ca-certificates \
   emacs-nox \
@@ -37,6 +37,7 @@ RUN apt-get update -y && apt-get install -y \
   nodejs \
   npm \
   openjdk-21-jre-headless \
+  openssh-client \
   pgcli \
   pkg-config \
   poppler-utils \
@@ -73,14 +74,46 @@ RUN apt-get update -y && apt-get install -y \
   libxslt1-dev \
   libpq-dev \
   docker-cli \
-  docker.io
+  docker.io \
+  sbcl \
+  cl-swank \
+  slime \
+  elpa-paredit \
+  elpa-rainbow-delimiters \
+  tree-sitter-cli \
+  universal-ctags \
+  zstd \
+  7zip \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
 RUN wget -qO /etc/apt/trusted.gpg.d/obs-openscad-nightly.asc https://files.openscad.org/OBS-Repository-Key.pub \
- && echo "deb https://download.opensuse.org/repositories/home:/t-paul/Debian_13/ ./" > /etc/apt/sources.list.d/openscad.list \
+ && echo "deb https://ftp.gwdg.de/pub/opensuse/repositories/home:/t-paul/Debian_13/ ./" > /etc/apt/sources.list.d/openscad.list \
  && apt-get update -y \
- && apt-get install -y --no-install-recommends openscad-nightly
+ && apt-get install -y --no-install-recommends openscad-nightly \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
  
 RUN ln -s /usr/bin/openscad-nightly /usr/bin/openscad
+
+RUN curl -fsSLo /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+  && chmod +x /usr/local/bin/yq \
+  && curl -fsSLo /tmp/duckdb.tgz https://github.com/duckdb/duckdb/releases/latest/download/duckdb-cli-linux-amd64.tar.gz \
+  && mkdir -p /tmp/duckdb \
+  && tar -xzf /tmp/duckdb.tgz -C /tmp/duckdb \
+  && find /tmp/duckdb -type f -name duckdb -exec cp {} /usr/local/bin/duckdb \; \
+  && chmod +x /usr/local/bin/duckdb \
+  && rm -rf /tmp/duckdb /tmp/duckdb.tgz
+
+RUN curl -fsSLo /tmp/quicklisp.lisp https://beta.quicklisp.org/quicklisp.lisp \
+  && sbcl --non-interactive --load /tmp/quicklisp.lisp \
+      --eval '(quicklisp-quickstart:install :path "/root/quicklisp/")' \
+  && printf '%s\n' '(load "/root/quicklisp/setup.lisp")' > /root/.sbclrc \
+  && sbcl --non-interactive \
+      --eval '(ql:quickload :alexandria)' \
+      --eval '(ql:quickload :cl-ppcre)' \
+      --eval '(ql:quickload :cl-json)' \
+  && rm -f /tmp/quicklisp.lisp
 
 RUN python3 -m pip install --no-cache-dir --break-system-packages  --ignore-installed urllib3 \
   requests \
@@ -91,6 +124,9 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages  --ignore-inst
   selenium \
   websocket-client \
   Pillow \
+  numpy \
+  trimesh \
+  numpy-stl \
   pymssql \
   psycopg2-binary \
   redis \

@@ -1,73 +1,98 @@
-#!/bin/bash
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE="myridia/opencode:latest"
-NAME="opencode_shell"
+#!/bin/sh
 
-task=""
-until [ "$task" = "0" ]; do
-  os="$(uname -s)"
-  case "$os" in
-    Darwin) os="macos" ;;
-    Linux) os="linux" ;;
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+TASKS_DIR="$SCRIPT_DIR/ask.d"
+
+task_meta() {
+  sed -n "s/^# $2: //p" "$1" | head -n1
+}
+
+task_id() {
+  task_meta "$1" id
+}
+
+group_rank() {
+  case "$1" in
+    BUILD) printf '1' ;;
+    CONTAINER) printf '2' ;;
+    IMAGE) printf '3' ;;
+    *) printf '9' ;;
   esac
+}
 
-  echo
-  echo "opencode_docker ($os, image $IMAGE)"
-  echo "TaskID  Description"
-  echo "1      Build - docker build -t $IMAGE"
-  echo "2      Run - start container, asks which folder to share"
-  echo "3      Status - show this project's containers"
-  echo "4      Stop - stop the container"
-  echo "5      Enter - shell into the running container"
-  echo "6      Remove container"
-  echo "7      Remove image"
-  echo "0      Exit"
-  printf "> "
-  read -r task
+list_tasks() {
+  for f in "$TASKS_DIR"/*.sh; do
+    [ -f "$f" ] || continue
+    [ "${f##*/}" = "lib.sh" ] && continue
+    groups=$(task_meta "$f" group | tr ',' ' ')
+    id=$(task_id "$f")
+    desc=$(task_meta "$f" desc)
+    for group in $groups; do
+      [ -n "$group" ] || continue
+      printf '%s|%s|%s|%s|%s\n' "$(group_rank "$group")" "$id" "$group" "$desc" "$f"
+    done
+  done | sort -t'|' -k1,1n -k2,2n
+}
 
+show_menu() {
+  printf "%s\n" '  ┌─────┬──────────────────────────────────────────────┐'
+  printf '  │  ID │ %-44s │\n' "Description"
+  printf "%s\n" '  ├─────┼──────────────────────────────────────────────┤'
+  last_group=""
+  list_tasks | while IFS='|' read -r rank id group desc file; do
+    if [ "$group" != "$last_group" ]; then
+      [ -z "$last_group" ] || printf "%s\n" '  ├─────┼──────────────────────────────────────────────┤'
+      printf '  │     │ %-44s │\n' "$group"
+      last_group=$group
+    fi
+    printf '  │ %2s  │ %-44s │\n' "$id" "$desc"
+  done
+  printf "%s\n" '  ├─────┼──────────────────────────────────────────────┤'
+  printf '  │ %2s  │ %-44s │\n' "0" "Exit"
+  printf "%s\n" '  └─────┴──────────────────────────────────────────────┘'
+}
+
+printf "\n  opencode_docker - Task Runner\n\n"
+
+while true; do
+  show_menu
+
+  printf "  Enter Task ID: "
+  read task || exit 0
+
+  if [ "$task" = "0" ]; then
+    printf "  Goodbye!\n"
+    exit 0
+  fi
+
+  task=${task#0}
   case "$task" in
-    1)
-      export DOCKER_BUILDKIT=0
-      docker build -t "$IMAGE" "$DIR" && echo "ok: built $IMAGE" || echo "FAIL: build"
-      ;;
-    2)
-      printf "Folder to share with the container (enter for none): "
-      read -r share
-      share="${share/#\~/$HOME}"
-      if [ -n "$share" ] && [ ! -d "$share" ]; then
-        echo "FAIL: no such folder: $share"
-        continue
-      fi
-      args=(run -it --privileged --name "$NAME")
-      if [ -n "$share" ]; then
-        args+=(-v "$share":/workspace -w /workspace)
-        echo "sharing $share -> /workspace"
-      fi
-      docker "${args[@]}" "$IMAGE" bash
-      ;;
-    3)
-      docker ps -a --filter "name=opencode_"
-      ;;
-    4)
-      docker stop "$NAME" && echo "ok: stopped $NAME" || echo "FAIL: stop"
-      ;;
-    5)
-      docker exec -it "$NAME" bash
-      ;;
-    6)
-      docker rm -f "$NAME" && echo "ok: removed $NAME" || echo "FAIL: remove"
-      ;;
-    7)
-      docker rmi "$IMAGE" && echo "ok: removed $IMAGE" || echo "FAIL: remove"
-      ;;
-    0)
-      break
-      ;;
-    *)
-      echo "unknown task: $task"
+    ''|*[!0-9]*)
+      printf "  Unknown task: %s\n" "$task"
+      sleep 2
+      printf "\n"
+      continue
       ;;
   esac
 
-  sleep 3
-  exec "$DIR/ask.sh"
+  task_file=""
+  for f in "$TASKS_DIR"/*.sh; do
+    [ -f "$f" ] || continue
+    [ "${f##*/}" = "lib.sh" ] && continue
+    if [ "$(task_id "$f")" = "$task" ]; then
+      task_file=$f
+      break
+    fi
+  done
+
+  if [ -n "$task_file" ]; then
+    sh "$task_file"
+    rc=$?
+    [ "$rc" -eq 0 ] || printf "  Task %s exited with code %s.\n" "$task" "$rc"
+  else
+    printf "  Unknown task: %s\n" "$task"
+  fi
+
+  sleep 2
+  printf "\n"
 done
