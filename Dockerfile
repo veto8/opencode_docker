@@ -84,6 +84,7 @@ RUN apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-
   universal-ctags \
   zstd \
   7zip \
+  mercurial \  
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
